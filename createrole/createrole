@@ -1,0 +1,2 @@
+CREATE ROLE regina LOGIN PASSWORD 'adttianyan' SUPERUSER VALID UNTIL 'infinity';
+//创建一个 用户名为 regina 密码为adttianyan 的过期时间为永远的 超级用户
