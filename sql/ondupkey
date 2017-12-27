@@ -1,0 +1,6 @@
+  写入跟新如果当前的操作，如果当前存在，则更新，不存在写入
+  1)insert into {tb} (rid,pid,page_id,add_date,pay_num,total_pay_num,new_deviceid,reg_num) 
+                values {vals}
+                ON CONFLICT (rid, pid, add_date) DO UPDATE set pay_num = excluded.pay_num,total_pay_num = excluded.total_pay_num, deviceid_num = excluded.deviceid_num,
+                reg_num = excluded.reg_num
+                
