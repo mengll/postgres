@@ -1,0 +1,99 @@
+1）返回值的意义
+   -- for each statement的触发器函数的返回值没有意义, 不会造成任何影响. 不管是返回NULL还是HeapTuple都无意义, 所以返回NULL就可以了.  
+    -- after for each row 的触发器函数的返回值也没有意义, 不会造成任何影响. 不管是返回NULL还是HeapTuple都无意义, 所以返回NULL就可以了.  
+    -- 因此有意义的就是before for each row的触发器函数的返回值.   
+    -- before for each row触发器函数返回NULL将造成跳过该行的操作, 同时跳过后面所有的for each row触发器.  
+    -- before for each row触发器函数返回HeapTuple时, 返回值将传递给下一个before for each row的触发器函数的NEW, 或者行操作的C函数.  
+    -- 注意OLD不会传递给下一个触发器函数或操作行的C函数.
+    
+2）pg触发器函数的参数与值传递
+
+这里说的是plpgsql触发器函数的参数, 不是放在形参定义中, 而是使用TG_ARGV[]来获取.
+
+参数的值传递 :
+
+在创建触发器时传递, 以STRING常量类型传递, 如果不是string类型, 会自动转换成string类型.
+
+创建控制器方法 
+  digoal=> create or replace function tg() returns trigger as $$  
+  declare  
+  begin  
+    raise notice 'args:%', TG_NARGS;   
+    if TG_NARGS>0 then  
+      for i in 0..(TG_NARGS-1) loop  
+        raise notice 'ARG%: %', i, TG_ARGV[i];  
+      end loop;  
+    end if;  
+    return new;  
+  end;  
+  $$ language plpgsql;  
+  CREATE FUNCTION  
+  digoal=> create table arg_test (id int, info text, crt_time timestamp);  
+  CREATE TABLE  
+  
+  digoal=> create trigger tg0 before insert on arg_test for each row execute procedure tg(id, info, crt_time);  
+  CREATE TRIGGER  
+  digoal=> insert into arg_test values (1,'digoal',now());  
+  NOTICE:  args:3  
+  NOTICE:  ARG0: id  
+  NOTICE:  ARG1: info  
+  NOTICE:  ARG2: crt_time  
+  INSERT 0 1  
+  
+  
+  
+  pg 中的关键词的描述的操作
+  
+  When a PL/pgSQL function is called as a trigger, several special variables are created automatically in the top-level block. They are:  
+  
+NEW  
+Data type RECORD; variable holding the new database row for INSERT/UPDATE operations in row-level triggers. This variable is NULL in statement-level triggers and for DELETEoperations.  
+  
+OLD  
+Data type RECORD; variable holding the old database row for UPDATE/DELETE operations in row-level triggers. This variable is NULL in statement-level triggers and for INSERToperations.  
+  
+TG_NAME  
+Data type name; variable that contains the name of the trigger actually fired.  
+  
+TG_WHEN  
+Data type text; a string of BEFORE, AFTER, or INSTEAD OF, depending on the trigger's definition.  
+  
+TG_LEVEL  
+Data type text; a string of either ROW or STATEMENT depending on the trigger's definition.  
+  
+TG_OP  
+Data type text; a string of INSERT, UPDATE, DELETE, or TRUNCATE telling for which operation the trigger was fired.  
+  
+TG_RELID  
+Data type oid; the object ID of the table that caused the trigger invocation.  
+  
+TG_RELNAME  
+Data type name; the name of the table that caused the trigger invocation. This is now deprecated, and could disappear in a future release. Use TG_TABLE_NAME instead.  
+  
+TG_TABLE_NAME  
+Data type name; the name of the table that caused the trigger invocation.  
+  
+TG_TABLE_SCHEMA  
+Data type name; the name of the schema of the table that caused the trigger invocation.  
+  
+TG_NARGS  
+Data type integer; the number of arguments given to the trigger procedure in the CREATE TRIGGER statement.  
+  
+TG_ARGV[]  
+Data type array of text; the arguments from the CREATE TRIGGER statement. The index counts from 0. Invalid indexes (less than 0 or greater than or equal to tg_nargs) result in a null value.  
+  
+ 4）触发器函数过程
+     The data change (insertion, update, or deletion) causing the trigger to fire is naturally not visible to SQL commands executed in a row-level BEFORE trigger, because it hasn't happened yet.  
+    before for each row触发器不能看到insert , update , delete对本行数据的更改. 因为本行数据变更尚未发生.  
+
+    However, SQL commands executed in a row-level BEFORE trigger will see the effects of data changes for rows previously processed in the same outer command. This requires caution, since the ordering of these change events is not in general predictable; a SQL command that affects multiple rows can visit the rows in any order.  
+    before for each row触发器可以看到其他已经变更的行的数据, 因为一条SQL语句可能操作多条数据, 后面的行触发器可以看到前面已经变更的行数据.   
+
+    Similarly, a row-level INSTEAD OF trigger will see the effects of data changes made by previous firings of INSTEAD OF triggers in the same outer command.  
+    instead of 触发器与上面类似, 可以看到其他已经变更的行的数据, 因为一条SQL语句可能操作多条数据, 后面的行触发器可以看到前面已经变更的行数据.   
+
+    When a row-level AFTER trigger is fired, all data changes made by the outer command are already complete, and are visible to the invoked trigger function.  
+    注意, after for each row触发器函数可以看到所有的数据变更, 因为after for each row触发器是在所有行都操作完后触发的.   
+
+  
+  
