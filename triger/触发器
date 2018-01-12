@@ -1,0 +1,16 @@
+1) postgresql 中的触发器 首先是创建触发器（无参数的）
+  
+postgres=# create or replace function tg_t_ret() returns trigger as $$ //创建触发器的语句                               
+declare   //
+begin  
+  NEW.id := NEW.id+1;   New是当前更新后的数据，即将要写入的数据，能够获取当前将要写入的数据值 OLD 在本行更改前额数据   
+  raise notice '%, id:%', TG_NAME, NEW.id;   
+  -- 修改NEW.id , 并返回修改后的NEW. 影响插入数据的并不是NEW变量本身,  而是return的值, 这个在后面将会有例子举证.  
+  return NEW;  
+end;  
+$$ language plpgsql;  
+CREATE FUNCTION  
+
+-- 创建出触发器的绑定
+postgres=# create trigger tg1 before insert ON t_ret for each row execute procedure tg_t_ret();  
+CREATE TRIGGER  
