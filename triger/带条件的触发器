@@ -1,0 +1,37 @@
+1）带有where 条件的触发器
+
+  CREATE OR REPLACE FUNCTION public.undo_tgtest_trace()  
+  RETURNS trigger  
+  LANGUAGE plpgsql  
+  AS $BODY$  
+  DECLARE  
+    v_username text := session_user;  
+    v_client_addr inet := inet_client_addr();  
+    v_client_port int := inet_client_port();  
+    v_xid bigint := txid_current();  -- 记录这条记录被更新的事务号.  
+    v_encoding name := pg_client_encoding();  
+  BEGIN  
+    case TG_OP  
+    when 'UPDATE' then   
+      insert into public.undo_tgtest (xid, relid, table_schema, table_name, when_tg, level, op, encoding, old_rec, new_rec, username, client_addr, client_port)  
+        values (v_xid, tg_relid, tg_table_schema, tg_table_name, tg_when, tg_level, tg_op, v_encoding, OLD, NEW, v_username, v_client_addr, v_client_port);  
+    else  
+      return null;  
+    end case;  
+    RETURN null;  
+  END;  
+  $BODY$ strict volatile; 
+
+  postgres=# create trigger tg1 after update on tgtest for each row when (old.info<>new.info and old.info='abc') execute procedure undo_tgtest_trace();  
+  CREATE TRIGGER  
+  
+  
+  空值的判断, 因为空和任何值的比较都返回空, 所以条件不成立. 因此在写when时, 看你有没有这方面的需求, 如果有的话, 需要多写几个条件.
+  ((old.info<>new.info or (old.info is null and new.info is not null) or (old.info is not null and new.info is null)) and old.id=1)
+  
+  这里使用id=1来定位一条记录, 并且判断info字段是否被变更.
+  
+  postgres=# drop trigger tg1 on tgtest;  
+DROP TRIGGER  
+postgres=# create trigger tg1 after update on tgtest for each row when ((old.info<>new.info or (old.info is null and new.info is not null) or (old.info is not null and new.info is null)) and old.id=1) execute procedure undo_tgtest_trace();  
+CREATE TRIGGER  
