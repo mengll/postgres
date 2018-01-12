@@ -14,3 +14,219 @@ CREATE FUNCTION
 -- 创建出触发器的绑定
 postgres=# create trigger tg1 before insert ON t_ret for each row execute procedure tg_t_ret();  
 CREATE TRIGGER  
+
+
+1）postgres=# create or replace function tg_t_ret() returns trigger as $$                           
+declare  
+begin  
+  OLD.id := OLD.id+1;   
+  raise notice '%, id:%', TG_NAME, OLD.id;   
+  return OLD;  
+end;  
+$$ language plpgsql;  
+CREATE FUNCTION  
+postgres=# create trigger tg3 before DELETE ON t_ret for each row execute procedure tg_t_ret();  
+CREATE TRIGGER  
+postgres=# delete from t_ret where id=1;  
+DELETE 0  
+postgres=# delete from t_ret where id=2;  
+NOTICE:  00000: tg3, id:3  
+LOCATION:  exec_stmt_raise, pl_exec.c:2840  
+-- 虽然触发器函数返回的OLD.id=3, 但是实际上删除的行是id=2的行. 说明delete before for each row的触发器函数返回值并不能改变行的定位. 与此不同的是, 当delete before for each row触发器函数的返回值为空时, 不会执行delete数据行的操作.  
+DELETE 1  
+  
+postgres=# select * from t_ret ;  
+ id |  info  |          crt_time            
+----+--------+----------------------------  
+  3 | digoal | 2013-03-10 17:33:32.91286  
+  3 | digoal | 2013-03-10 17:34:1
+  7.854048  
+(2 rows)  
+ 删除数据的时候的操作
+ -- 返回空, 不会执行delete操作, 如下
+ postgres=# CREATE OR REPLACE FUNCTION public.tg_t_ret()  
+ RETURNS trigger  
+ LANGUAGE plpgsql  
+AS $function$                           
+declare  
+begin  
+  OLD.id := OLD.id+1;   
+  raise notice '%, id:%', TG_NAME, OLD.id;   
+  return null;  
+end;  
+$function$;  
+CREATE FUNCTION  
+postgres=# create trigger tg1 before delete on t_ret for each row execute procedure tg_t_ret();  
+CREATE TRIGGER  
+postgres=# delete from t_ret where id=1;  
+NOTICE:  00000: tg1, id:1  
+LOCATION:  exec_stmt_raise, pl_exec.c:2840  
+DELETE 0  
+
+-- 没有删除数据. 因为tg_t_ret触发器函数返回空.
+
+postgres=# select * from t_ret;  
+ id | info |          crt_time            
+----+------+----------------------------  
+  1 | abc  | 2013-03-10 20:38:50.951669  
+(1 row)  
+
+
+1）删除数据的时候，如果当前的返回值为空的时候 数据是无法删除的
+2）当执行更新的，触发器的时候，如果返回的内容为空的时候无法执行，跟新的操作
+
+postgres=# create or replace function tg_t_ret() returns trigger as $$  
+declare  
+begin  
+  OLD.id := OLD.id+1;  
+  NEW.id := NEW.id+1;  
+  raise notice '%, old.id:%. new.id:%', TG_NAME, OLD.id, NEW.id;  
+  return null;  
+end;  
+$$ language plpgsql;  
+CREATE FUNCTION    数据更新触发器
+
+-- 当update before for each row 触发器函数的返回值不为空时, 被更改的行的最终值将与最后一个执行的before for each row 触发器函数的返回值一致.
+ -- 本例的tg2是最后一次调用的update before for each row触发器函数, 它的返回值为NEW.id := 3, NEW.info := 'new', NEW.crt_time保持原值.
+
+-- 因此更新后的值id = 3, 而不是原来的1.
+
+postgres=# create or replace function tg_t_ret() returns trigger as $$                           
+declare  
+begin  
+  OLD.id := OLD.id+1;  
+  NEW.id := NEW.id+1;  
+  raise notice '%, old.id:%. new.id:%', TG_NAME, OLD.id, NEW.id;  
+  return NEW;   
+end;  
+$$ language plpgsql;  
+CREATE FUNCTION  
+postgres=# update t_ret set info='new' where id=1 returning *;  
+NOTICE:  00000: tg1, old.id:2. new.id:2  
+LOCATION:  exec_stmt_raise, pl_exec.c:2840  
+-- 前后两次调用的触发器函数OLD的值一样, 说明OLD的值是从原始的HeapTuple拷贝过来的, 而不是拷贝的指针.  
+-- 第一个update before for each row触发器函数中的NEW值一部分是从SQL语句传入的(修改的值), 另一部分是从原始的HeapTuple拷贝过来的(未修改的值).  
+-- 接下来的update before for each row 触发器函数则是上一个触发器函数的返回值.  
+-- 最终被更新的行数据则是最后一个update before for each row 触发器函数的返回值.  
+NOTICE:  00000: tg2, old.id:2. new.id:3  
+LOCATION:  exec_stmt_raise, pl_exec.c:2840  
+ id | info |          crt_time            
+----+------+----------------------------  
+  3 | new  | 2013-03-10 20:56:52.339739  
+(1 row)  
+UPDATE 1  
+postgres=# select * from t_ret ;  
+ id |  info  |          crt_time            
+----+--------+----------------------------  
+  2 | DIGOAL | 2013-03-10 20:56:52.339739  
+  3 | digoal | 2013-03-10 20:56:52.339739  
+  4 | abc    | 2013-03-10 20:56:52.339739  
+  3 | new    | 2013-03-10 20:56:52.339739  
+(4 rows)  
+
+------------------------华丽的分割线-------------------------------------------触发器总结-------------------------
+1. before for each statement (触发器函数的返回值无意义)
+
+2. before for each row (第一个被触发的触发器, 触发器函数的NEW值取自SQL语句)
+
+返回值的流水 :
+
+2.1 返回值传递给下一个被触发的before for each row触发器, 作为下一个触发器调用的触发器函数的NEW值.
+
+2.2 如果下面没有before for each row触发器, 则将返回值传递给操作插入行数据的C函数.
+
+2.3 如果返回值为空, 那么跳过本行操作, (如果SQL语句涉及多行, 则跳到下一行的第一个before for each row触发器; 如果SQL不涉及多行或者已经到达最后行, 则直接跳到语句结束或after for each statement的操作;)
+
+3. before for each row(可选)
+
+4. 检查约束, 插入行的操作
+
+5. 以下触发器或returning语句的NEW值取自HeapTuple, 表示物理的数据行中的数据, 因此这里的触发器返回值没有意义, 不会作为NEW值传递给其他触发器.
+
+after for each row 触发器 (>=0个)
+
+returning 语句, 被插入的行的真实数据, 其实就是最后一个before for each row触发器函数的返回值.
+
+after for each statement 触发器 (>=0个)
+
+DELETE 触发器: for TABLE
+
+1. before for each statement (触发器函数的返回值无意义)
+
+2. before for each row (第一个被触发的触发器, 触发器函数的OLD值取自SQL语句)
+
+返回值的流水 :
+
+2.1 返回值传递给下一个被触发的before for each row触发器, 作为下一个触发器调用的触发器函数的OLD值.
+
+2.2 如果下面没有before for each row触发器, 则进入DELETE行的操作, 注意删除行不是通过上面返回的OLD值定位的, 所以before for each row函数的返回值不会篡改删除行的操作. (注意它和INSERT触发器的分别, 已经存在的数据(DELETE)和不存在的数据(INSERT)).
+
+2.3 如果返回值为空, 那么跳过本行操作, (如果SQL语句涉及多行, 则跳到下一行的第一个before for each row触发器; 如果SQL不涉及多行或者已经到达最后行, 则直接跳到语句结束或after for each statement的操作;)
+
+3. before for each row(可选)
+
+4. 检查约束, 删除行的操作
+
+5. 以下触发器或returning语句的OLD值取自HeapTuple, 表示物理的数据行中的数据, 因此这里的触发器返回值没有意义, 不会作为OLD值传递给其他触发器.
+
+after for each row 触发器 (>=0个)
+
+returning 语句, 被删除的行的原始数据, 注意不是最后一个before for each row触发器函数的返回值.
+
+after for each statement 触发器 (>=0个)
+
+UPDATE 触发器: for TABLE
+
+1. before for each statement (触发器函数的返回值无意义)
+
+2. before for each row (第一个被触发的触发器, 触发器函数的OLD值和NEW值取自SQL语句)
+
+返回值的流水 :
+
+2.1 返回值传递给下一个被触发的before for each row触发器, 作为下一个触发器调用的触发器函数的NEW值. OLD值修改不影响下一个触发器函数.
+
+2.2 如果下面没有before for each row触发器, 则进入UPDATE行的操作, 注意被更新的行不是通过触发器函数修改过的OLD值定位的, 所以before for each row函数中对OLD值的修改不会篡改删除行的操作. (注意它和INSERT触发器的分别, 已经存在的数据(DELETE)和不存在的数据(INSERT)).
+
+例如update t set info='new' where id=1; 如果在触发器中修改了OLD.id=2, 不会变成update t set info='new' where id=2; 修改的行依然是1;
+
+2.3 如果返回值为空, 那么跳过本行操作, (如果SQL语句涉及多行, 则跳到下一行的第一个before for each row触发器; 如果SQL不涉及多行或者已经到达最后行, 则直接跳到语句结束或after for each statement的操作;)
+
+3. before for each row(可选, 上一个before for each row触发器函数的返回值影响这个触发器函数的NEW值, 不影响OLD值)
+
+4. 检查约束, 删除行的操作, NEW值来自最后一个before for each row触发器函数的返回值.
+
+5. 以下触发器或returning语句的NEW值取自HeapTuple, 表示物理的数据行中的数据, 因此这里的触发器返回值没有意义, 不会作为NEW值传递给其他触发器.
+
+after for each row 触发器 (>=0个)
+
+returning 语句, 展示被更新的行的最终数据, 其实就是最后一个before for each row触发器函数的返回值.
+
+after for each statement 触发器 (>=0个)
+
+--创建触发器函数
+
+
+digoal=> create or replace function tg() returns trigger as $$  
+declare  
+begin  
+  case TG_OP  
+  when 'INSERT' then  
+    NEW.id := NEW.id+1;  
+    raise notice '%, %, %, %, new:%', TG_OP, TG_NAME, TG_WHEN, TG_LEVEL, NEW;  
+    return NEW;  
+  when 'UPDATE' then   
+    NEW.id := NEW.id+1;  
+    OLD.id := OLD.id+1;  
+    raise notice '%, %, %, %, new:%, old:%', TG_OP, TG_NAME, TG_WHEN, TG_LEVEL, NEW, OLD;  
+    return NEW;  
+  when 'DELETE' then  
+    OLD.id := OLD.id+1;  
+    raise notice '%, %, %, %, old:%', TG_OP, TG_NAME, TG_WHEN, TG_LEVEL, OLD;  
+    return OLD;  
+  end case;  
+end;  
+$$ language plpgsql;  
+
+
+
+
