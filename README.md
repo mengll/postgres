@@ -11,4 +11,7 @@ CACHE 1;
   
 alter table gp_game_tags alter column id set default nextval('gp_game_tags_id_seq');
 
+openrestry 中的pgsql pglib 的安装
+yum install postgresql-devel
+
 ```
